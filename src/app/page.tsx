@@ -15,11 +15,15 @@ import type {
   ProgressInfo,
 } from "@/types/cutout";
 import { useAppSettings } from "@/lib/terms-storage";
-import { removeImageBackground } from "@/lib/background-removal";
+import {
+  removeImageBackground,
+  preloadBackgroundRemovalModel,
+} from "@/lib/background-removal";
 import {
   createImageUrl,
   exportWithBackground,
   downloadBlob,
+  extForFormat,
   isAcceptedFile,
   MAX_FILE_BYTES,
   normalizeForProcessing,
@@ -47,8 +51,8 @@ function makeImage(file: File): CutoutImage {
     status: "queued",
     progress: INITIAL_PROGRESS,
     filename: sanitizeFilename(file.name),
-    outputFormat: "png",
     background: { kind: "none" },
+    downloadFormat: "png",
   };
 }
 
@@ -72,6 +76,25 @@ export default function Home() {
       images.forEach((i) => revokeImageUrl(i.resultUrl));
     };
   }, []);
+
+  // ---- Preload the AI model on idle once terms are accepted, so the first
+  // real background removal is fast (the ~44MB download happens in the
+  // background, cached by the browser for all subsequent runs).
+  React.useEffect(() => {
+    if (!hydrated || !settings.termsAccepted) return;
+    const run = () => preloadBackgroundRemovalModel();
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const handle = (window as Window & {
+        requestIdleCallback: (cb: () => void) => number;
+      }).requestIdleCallback(run);
+      return () =>
+        (window as Window & {
+          cancelIdleCallback: (h: number) => void;
+        }).cancelIdleCallback(handle);
+    }
+    const t = window.setTimeout(run, 1500);
+    return () => window.clearTimeout(t);
+  }, [hydrated, settings.termsAccepted]);
 
   // ---- Helpers ----
   const patchImage = React.useCallback(
@@ -228,11 +251,13 @@ export default function Home() {
       if (!png) return;
       const blob = await exportWithBackground(
         png,
-        image.outputFormat,
+        image.downloadFormat,
         image.background,
       );
-      const ext = image.outputFormat === "png" ? "png" : "jpg";
-      downloadBlob(blob, withExtension(image.filename, ext));
+      downloadBlob(
+        blob,
+        withExtension(image.filename, extForFormat(image.downloadFormat)),
+      );
     },
     [],
   );
@@ -323,7 +348,6 @@ export default function Home() {
               transparentPng={transparentPngsRef.current[refineImage.id]}
               width={refineImage.width}
               height={refineImage.height}
-              outputFormat={refineImage.outputFormat}
               background={refineImage.background}
               onCancel={() => setView({ kind: "result", imageId: refineImage.id })}
               onApply={(blob) => applyRefine(refineImage.id, blob)}

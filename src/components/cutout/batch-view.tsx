@@ -49,10 +49,15 @@ export function BatchView({
       try {
         const blob = await exportWithBackground(
           png,
-          img.outputFormat,
+          img.downloadFormat,
           img.background,
         );
-        const ext = img.outputFormat === "png" ? "png" : "jpg";
+        const ext =
+          img.downloadFormat === "png"
+            ? "png"
+            : img.downloadFormat === "webp"
+              ? "webp"
+              : "jpg";
         items.push({ blob, filename: withExtension(img.filename, ext) });
       } catch {
         /* skip */

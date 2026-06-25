@@ -1,12 +1,25 @@
 // Shared public types for the Cutout app.
 
-export type OutputFormat = "png" | "jpeg";
-
+/**
+ * Background applied behind the cut-out subject.
+ * - "none"    → keep transparency (checkerboard preview)
+ * - "white"   → solid white backdrop
+ * - "custom"  → user-picked hex color
+ *
+ * (Black was intentionally removed — the three options above cover the
+ * realistic use cases and keep the UI minimal.)
+ */
 export type BackgroundChoice =
   | { kind: "none" }
   | { kind: "white" }
-  | { kind: "black" }
   | { kind: "custom"; color: string };
+
+/**
+ * Download format. PNG and WebP both support alpha (transparency); JPEG does
+ * not, so when the user picks JPEG with a transparent background we composite
+ * onto white automatically at export time.
+ */
+export type DownloadFormat = "png" | "jpeg" | "webp";
 
 export type ImageStatus =
   | "queued"
@@ -38,10 +51,10 @@ export interface CutoutImage {
   error?: string;
   /** Original filename, sanitized. */
   filename: string;
-  /** Output mime type the user picked for this image. */
-  outputFormat: OutputFormat;
-  /** Background color applied when outputFormat === "jpeg". */
+  /** Background the user picked for preview + export. */
   background: BackgroundChoice;
+  /** Default download format. */
+  downloadFormat: DownloadFormat;
   /** When true, the result has been edited with the refine tool. */
   refined?: boolean;
 }

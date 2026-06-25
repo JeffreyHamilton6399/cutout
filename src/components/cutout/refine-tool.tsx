@@ -12,7 +12,7 @@ import {
   X,
   RotateCcw,
 } from "lucide-react";
-import type { BackgroundChoice, OutputFormat } from "@/types/cutout";
+import type { BackgroundChoice } from "@/types/cutout";
 
 interface RefineToolProps {
   /** Raw transparent PNG blob to refine. */
@@ -20,8 +20,7 @@ interface RefineToolProps {
   /** Dimensions of the image (for canvas). */
   width: number;
   height: number;
-  /** Applied only when rendering the live preview if output is JPEG. */
-  outputFormat: OutputFormat;
+  /** Background the user picked (used only to render the live preview). */
   background: BackgroundChoice;
   onCancel: () => void;
   /** Called with the new refined transparent PNG blob. */
@@ -46,7 +45,6 @@ export function RefineTool({
   transparentPng,
   width,
   height,
-  outputFormat,
   background,
   onCancel,
   onApply,

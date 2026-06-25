@@ -1,6 +1,6 @@
 "use client";
 
-import type { BackgroundChoice, OutputFormat } from "@/types/cutout";
+import type { BackgroundChoice, DownloadFormat } from "@/types/cutout";
 
 /**
  * Client-side image utilities: HEIC decoding, format export, size guards,
@@ -79,16 +79,53 @@ export async function readDimensions(
   return { width: w, height: h };
 }
 
+const FORMAT_MIME: Record<DownloadFormat, string> = {
+  png: "image/png",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
+
+const FORMAT_EXT: Record<DownloadFormat, string> = {
+  png: "png",
+  jpeg: "jpg",
+  webp: "webp",
+};
+
+/** MIME type for a download format. */
+export function mimeForFormat(format: DownloadFormat): string {
+  return FORMAT_MIME[format];
+}
+
+/** File extension for a download format. */
+export function extForFormat(format: DownloadFormat): string {
+  return FORMAT_EXT[format];
+}
+
 /**
- * Compose a transparent PNG (the raw AI output) onto a solid background
- * color and export as JPEG. Used when the user picks "JPEG with background".
+ * True if the format can preserve alpha transparency.
+ * PNG and WebP can; JPEG cannot.
+ */
+export function formatSupportsAlpha(format: DownloadFormat): boolean {
+  return format === "png" || format === "webp";
+}
+
+/**
+ * Compose the transparent PNG (raw AI output) onto the chosen background
+ * and export in the requested format.
+ *
+ * Rules:
+ *  - format=png + bg=none  → return the transparent PNG as-is (no re-encode).
+ *  - format=webp + bg=none → re-encode to transparent WebP.
+ *  - format=jpeg + bg=none → JPEG has no alpha, so composite onto white.
+ *  - bg=white/custom        → composite onto the color, in the requested format.
  */
 export async function exportWithBackground(
   transparentPng: Blob,
-  format: OutputFormat,
+  format: DownloadFormat,
   background: BackgroundChoice,
 ): Promise<Blob> {
-  if (format === "png") {
+  // Fast path: transparent PNG requested with no background.
+  if (format === "png" && background.kind === "none") {
     return transparentPng;
   }
 
@@ -111,20 +148,29 @@ export async function exportWithBackground(
     ? (canvas as OffscreenCanvas).getContext("2d")!
     : (canvas as HTMLCanvasElement).getContext("2d")!;
 
-  const bgColor = resolveBackgroundColor(background);
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, width, height);
+  // Fill background only when the user picked one OR the format can't hold alpha.
+  const needsBgFill =
+    background.kind !== "none" || !formatSupportsAlpha(format);
+  if (needsBgFill) {
+    ctx.fillStyle = resolveBackgroundColor(background);
+    ctx.fillRect(0, 0, width, height);
+  }
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close?.();
 
+  const mime = mimeForFormat(format);
+  const quality = format === "png" ? undefined : 0.92;
+
   if (canvas instanceof OffscreenCanvas) {
-    return canvas.convertToBlob({ type: "image/jpeg", quality: 0.92 });
+    return canvas.convertToBlob(
+      quality !== undefined ? { type: mime, quality } : { type: mime },
+    );
   }
   return new Promise<Blob>((resolve, reject) => {
     (canvas as HTMLCanvasElement).toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("Failed to export JPEG"))),
-      "image/jpeg",
-      0.92,
+      (b) => (b ? resolve(b) : reject(new Error(`Failed to export ${format}`))),
+      mime,
+      quality,
     );
   });
 }
@@ -132,11 +178,22 @@ export async function exportWithBackground(
 export function resolveBackgroundColor(bg: BackgroundChoice): string {
   switch (bg.kind) {
     case "none":
+      // When a fill is required (e.g. JPEG), default to white.
+      return "#ffffff";
+    case "white":
+      return "#ffffff";
+    case "custom":
+      return bg.color;
+  }
+}
+
+/** CSS color for the live preview "after" panel (transparent → checkerboard). */
+export function resolveBgCss(bg: BackgroundChoice): string {
+  switch (bg.kind) {
+    case "none":
       return "transparent";
     case "white":
       return "#ffffff";
-    case "black":
-      return "#000000";
     case "custom":
       return bg.color;
   }
