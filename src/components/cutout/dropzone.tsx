@@ -111,21 +111,7 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
             <ImagePlus className="h-5 w-5" />
           </div>
 
-          <div className="space-y-1">
-            <p className="text-base font-semibold sm:text-lg">Drop a photo</p>
-            <p className="mx-auto max-w-sm text-xs text-muted-foreground sm:text-sm">
-              Remove backgrounds in your browser — your photos never leave your
-              device.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="rounded-full bg-muted px-2 py-0.5">No uploads</span>
-            <span className="rounded-full bg-muted px-2 py-0.5">No sign-up</span>
-            <span className="rounded-full bg-muted px-2 py-0.5">
-              No $40/month
-            </span>
-          </div>
+          <p className="text-base font-semibold sm:text-lg">Drop a photo</p>
 
           <p className="text-[11px] text-muted-foreground">
             or paste from clipboard · PNG, JPEG, WebP, HEIC · max{" "}
