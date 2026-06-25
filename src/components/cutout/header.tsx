@@ -74,28 +74,28 @@ export function Header({ onReset }: HeaderProps) {
           </span>
         </button>
 
-        {/* Right actions */}
-        <div className="flex items-center gap-1.5">
+        {/* Right actions — matches the reference: red-bordered pill Donate
+            button (red heart + white text) and a plain gear icon (no box). */}
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setDonateOpen(true)}
-            className="h-7 gap-1.5 rounded-full border-rose-500/40 text-rose-600 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+            className="h-7 gap-1.5 rounded-full border-rose-500/60 px-3 text-foreground hover:bg-rose-500/10 hover:text-foreground dark:text-foreground"
           >
-            <Heart className="h-3.5 w-3.5" />
+            <Heart className="h-3.5 w-3.5 text-rose-600 dark:text-rose-500" />
             <span className="hidden sm:inline">Donate</span>
           </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-full"
+              <button
+                type="button"
                 aria-label="Settings"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/80 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Settings className="h-4 w-4" />
-              </Button>
+                <Settings className="h-[18px] w-[18px]" />
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
