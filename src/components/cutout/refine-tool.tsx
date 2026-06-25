@@ -108,19 +108,22 @@ export function RefineTool({
       mask.width = src.width;
       mask.height = src.height;
       const mctx = mask.getContext("2d")!;
-      // Mask starts fully opaque (white = keep).
+      // The mask uses the ALPHA channel as the keep/erase value (255 = keep,
+      // 0 = erase). This is what `destination-in` reads during compositing,
+      // so the brush strokes (which paint alpha 0 or 255) actually take
+      // effect. RGB are irrelevant for compositing; we set them to white for
+      // a clean visual if the mask is ever drawn directly.
       mctx.fillStyle = "#ffffff";
       mctx.fillRect(0, 0, mask.width, mask.height);
-      // Initialize mask from source alpha: where source is transparent,
-      // mask is black (erase); where opaque, white (keep).
+      // Seed the mask alpha from the source PNG alpha.
       const srcData = sctx.getImageData(0, 0, src.width, src.height);
       const maskData = mctx.getImageData(0, 0, mask.width, mask.height);
       for (let i = 0; i < srcData.data.length; i += 4) {
-        const alpha = srcData.data[i + 3];
+        // mask RGB stays white; mask alpha mirrors source alpha.
         maskData.data[i] = 255;
-        maskData.data[i + 1] = alpha;
-        maskData.data[i + 2] = alpha;
-        maskData.data[i + 3] = 255;
+        maskData.data[i + 1] = 255;
+        maskData.data[i + 2] = 255;
+        maskData.data[i + 3] = srcData.data[i + 3];
       }
       mctx.putImageData(maskData, 0, 0);
       maskCanvasRef.current = mask;
@@ -174,15 +177,26 @@ export function RefineTool({
     const mask = maskCanvasRef.current;
     if (!mask) return;
     const ctx = mask.getContext("2d")!;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = brushMode === "erase" ? "#000000" : "#ffffff";
+    // Paint with alpha: erase = transparent (alpha 0), restore = opaque white
+    // (alpha 255). `destination-out` removes alpha; `source-over` with opaque
+    // white restores it. RGB is white in both cases; only alpha matters for
+    // the final destination-in composite.
+    if (brushMode === "erase") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#ffffff";
+    }
+    const radius = brushSize / 2 / displaySize.scale;
     ctx.beginPath();
-    ctx.arc(x, y, brushSize / 2 / displaySize.scale, 0, Math.PI * 2);
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
     // Smooth line to previous point
     const last = lastPointRef.current;
     if (last) {
-      ctx.strokeStyle = brushMode === "erase" ? "#000000" : "#ffffff";
       ctx.lineWidth = brushSize / displaySize.scale;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -191,6 +205,8 @@ export function RefineTool({
       ctx.lineTo(x, y);
       ctx.stroke();
     }
+    // Reset composite mode so other draws aren't affected.
+    ctx.globalCompositeOperation = "source-over";
     lastPointRef.current = { x, y };
     renderDisplay();
   };
@@ -237,14 +253,14 @@ export function RefineTool({
     pushUndo();
     const sctx = src.getContext("2d")!;
     const mctx = mask.getContext("2d")!;
+    // Re-seed mask alpha from the original source alpha.
     const srcData = sctx.getImageData(0, 0, src.width, src.height);
     const maskData = mctx.getImageData(0, 0, mask.width, mask.height);
     for (let i = 0; i < srcData.data.length; i += 4) {
-      const alpha = srcData.data[i + 3];
       maskData.data[i] = 255;
-      maskData.data[i + 1] = alpha;
-      maskData.data[i + 2] = alpha;
-      maskData.data[i + 3] = 255;
+      maskData.data[i + 1] = 255;
+      maskData.data[i + 2] = 255;
+      maskData.data[i + 3] = srcData.data[i + 3];
     }
     mctx.putImageData(maskData, 0, 0);
     renderDisplay();

@@ -230,9 +230,9 @@ export default function Home() {
     input.click();
   }, [processOne]);
 
-  // ---- Single result actions ----
-  const handleNewFile = React.useCallback(() => {
-    // Cancel any in-flight work and revoke URLs for the current single image.
+  // ---- Reset: cancel everything, revoke URLs, return to the dropzone.
+  // Used by both the "New file" button and clicking the Cutout logo.
+  const handleReset = React.useCallback(() => {
     setImages((prev) => {
       prev.forEach((i) => {
         abortsRef.current[i.id]?.abort();
@@ -243,6 +243,7 @@ export default function Home() {
       return [];
     });
     setView({ kind: "empty" });
+    setError(null);
   }, []);
 
   const handleDownloadOne = React.useCallback(
@@ -307,7 +308,7 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-background">
-      <Header />
+      <Header onReset={handleReset} />
 
       <main className="cutout-scroll flex-1 overflow-hidden">
         {view.kind === "empty" && (
@@ -324,7 +325,7 @@ export default function Home() {
             <ResultView
               image={currentImage}
               transparentPng={transparentPngsRef.current[currentImage.id]}
-              onNewFile={handleNewFile}
+              onNewFile={handleReset}
               onRefine={() => openRefine(currentImage.id)}
               onUpdateImage={(patch) => patchImage(currentImage.id, patch)}
             />

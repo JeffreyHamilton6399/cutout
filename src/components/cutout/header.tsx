@@ -24,9 +24,15 @@ import {
 import { DonateDialog } from "./donate-dialog";
 import { LegalDialog } from "./legal-dialog";
 
+interface HeaderProps {
+  /** Called when the user clicks the Cutout logo — resets the app to the
+   * empty dropzone (cancels in-flight work, revokes blob URLs). */
+  onReset?: () => void;
+}
+
 /**
  * App header. Matches the reference screenshot:
- *  - Left: Cutout logo (scissors SVG + wordmark)
+ *  - Left: Cutout logo (scissors SVG + wordmark) — click to start over
  *  - Right: Donate (rose heart) + Settings gear dropdown
  *  - Dropdown contents:
  *      Light mode toggle
@@ -35,7 +41,7 @@ import { LegalDialog } from "./legal-dialog";
  *      Terms of Service
  *      GitHub
  */
-export function Header() {
+export function Header({ onReset }: HeaderProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   const [donateOpen, setDonateOpen] = React.useState(false);
@@ -54,11 +60,19 @@ export function Header() {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center justify-between border-b px-3 sm:px-4">
-        {/* Logo */}
-        <div className="flex items-center gap-2">
+        {/* Logo — click to start over (resets to the dropzone) */}
+        <button
+          type="button"
+          onClick={onReset}
+          title="Start over"
+          aria-label="Cutout — start over"
+          className="group flex items-center gap-2 rounded-md px-1 py-0.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <ScissorsLogo />
-          <span className="text-sm font-semibold tracking-tight">Cutout</span>
-        </div>
+          <span className="text-sm font-semibold tracking-tight transition-colors group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+            Cutout
+          </span>
+        </button>
 
         {/* Right actions */}
         <div className="flex items-center gap-1.5">
