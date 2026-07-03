@@ -58,11 +58,19 @@ function describeKey(key: string): {
 }
 
 /**
- * Light alpha feather — smooths the subject/background edge. RMBG already
- * produces soft edges, so the radius is very small; this just cleans up any
- * residual hard transitions.
+ * Full post-processing pipeline for professional-quality cutouts:
+ *   1. Mask refinement — contrast curve + noise threshold
+ *   2. Color decontamination — remove background color fringe from edges
+ *   3. Light alpha feather — smooth the subject/background transition
+ *
+ * Color decontamination is the key step that separates amateur cutouts from
+ * remove.bg-quality ones. When a subject is cut from a colored background,
+ * the background color bleeds into the semi-transparent edge pixels (especially
+ * hair). When composited over a new background, that old color shows through
+ * as a visible fringe. Decontamination estimates the background color and
+ * removes it from the edge pixels' RGB.
  */
-async function featherAlpha(pngBlob: Blob): Promise<Blob> {
+async function postProcess(pngBlob: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(pngBlob);
   const w = bitmap.width;
   const h = bitmap.height;
@@ -85,6 +93,80 @@ async function featherAlpha(pngBlob: Blob): Promise<Blob> {
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
+  // ---- Step 1: Mask refinement (contrast curve + noise threshold) ----
+  // Push weak detections to 0 (clean transparent) and strong detections to
+  // 255 (clean opaque), keeping a smooth transition only in the 0.3–0.7
+  // range for hair/fur. Threshold out dust (alpha < 10).
+  for (let i = 3; i < data.length; i += 4) {
+    const a = data[i];
+    if (a < 10) {
+      // Dust — kill it.
+      data[i] = 0;
+    } else if (a > 230) {
+      // Solid subject — snap to opaque.
+      data[i] = 255;
+    } else {
+      // Transition zone — apply an S-curve to sharpen the edge while
+      // keeping it smooth. Maps 10..230 → 0..255 with contrast.
+      const t = (a - 10) / 220; // 0..1
+      // Smoothstep S-curve for a natural transition.
+      const eased = t * t * (3 - 2 * t);
+      data[i] = Math.round(eased * 255);
+    }
+  }
+
+  // ---- Step 2: Color decontamination ----
+  // Estimate the background color by sampling the image border pixels (the
+  // outermost rows/cols are almost always background). Then for each
+  // semi-transparent pixel, subtract the background tint so it doesn't
+  // fringe when composited over a new background.
+  let bgR = 0,
+    bgG = 0,
+    bgB = 0,
+    bgCount = 0;
+  const sampleBorder = (x: number, y: number) => {
+    const idx = (y * w + x) * 4;
+    // Sample from the original bitmap colors (pre-mask), focusing on pixels
+    // that the mask flagged as background (alpha < 128).
+    if (data[idx + 3] < 128) {
+      bgR += data[idx];
+      bgG += data[idx + 1];
+      bgB += data[idx + 2];
+      bgCount++;
+    }
+  };
+  // Sample all 4 borders.
+  for (let x = 0; x < w; x += Math.max(1, Math.floor(w / 50))) {
+    sampleBorder(x, 0);
+    sampleBorder(x, h - 1);
+  }
+  for (let y = 0; y < h; y += Math.max(1, Math.floor(h / 50))) {
+    sampleBorder(0, y);
+    sampleBorder(w - 1, y);
+  }
+  if (bgCount > 0) {
+    bgR /= bgCount;
+    bgG /= bgCount;
+    bgB /= bgCount;
+  }
+
+  // For semi-transparent edge pixels, remove the background tint from RGB.
+  // The more transparent a pixel, the more background color it contains.
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3];
+    if (a > 0 && a < 255) {
+      // How much background is blended in (0 = opaque, 1 = fully transparent).
+      const bgAmount = 1 - a / 255;
+      // Subtract the background color proportionally. Clamp to valid range.
+      data[i] = Math.max(0, Math.min(255, data[i] - bgR * bgAmount * 0.6));
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] - bgG * bgAmount * 0.6));
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] - bgB * bgAmount * 0.6));
+    }
+  }
+
+  // ---- Step 3: Light alpha feather ----
+  // Blur the alpha channel slightly for a smooth edge. We do this on a
+  // separate mask canvas to avoid color bleeding.
   let maskCanvas: OffscreenCanvas | HTMLCanvasElement;
   try {
     maskCanvas = new OffscreenCanvas(w, h);
@@ -106,7 +188,6 @@ async function featherAlpha(pngBlob: Blob): Promise<Blob> {
   }
   maskCtx.putImageData(maskData, 0, 0);
 
-  // Very light feather — RMBG edges are already soft, this just polishes.
   const radius = Math.max(0.4, Math.min(0.8, Math.max(w, h) / 2500));
   (maskCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D).filter = `blur(${radius}px)`;
   (maskCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D).drawImage(maskCanvas as CanvasImageSource, 0, 0);
@@ -207,9 +288,11 @@ export async function removeImageBackground(
     }
   }
 
-  // Light alpha feather for smooth edges.
+  // Professional post-processing: mask refinement + color decontamination
+  // + edge feather. This is what separates an ok cutout from a remove.bg-
+  // quality one.
   try {
-    blob = await featherAlpha(blob);
+    blob = await postProcess(blob);
   } catch {
     // Non-critical — return the raw result.
   }

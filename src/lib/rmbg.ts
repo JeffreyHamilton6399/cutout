@@ -35,7 +35,23 @@ let modelPromise: Promise<ModelType> | null = null;
 let processorPromise: Promise<ProcessorType> | null = null;
 
 /**
- * Lazy-load the RMBG-2.0 model + image processor.
+ * Detect WebGPU availability. WebGPU runs the model on the GPU — 10-50x
+ * faster than WASM and allows higher-resolution inference. Falls back to
+ * WASM automatically when unavailable.
+ */
+async function detectWebGPU(): Promise<boolean> {
+  try {
+    if (typeof navigator === "undefined" || !("gpu" in navigator)) return false;
+    const adapter = await (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu?.requestAdapter();
+    return !!adapter;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lazy-load the RMBG-2.0 model + image processor. Uses WebGPU when available
+ * (much faster), falls back to WASM.
  */
 async function loadModel(onProgress?: (info: ProgressInfo) => void) {
   if (!modelPromise) {
@@ -45,6 +61,12 @@ async function loadModel(onProgress?: (info: ProgressInfo) => void) {
 
       env.allowLocalModels = false;
       env.allowRemoteModels = true;
+
+      // Use WebGPU if the browser supports it — dramatically faster inference.
+      const hasWebGPU = await detectWebGPU();
+      if (hasWebGPU) {
+        env.backends.onnx.wasm.proxy = false;
+      }
 
       const progress_callback = (data: { status: string; progress?: number; file?: string }) => {
         if (data.status === "progress" && data.progress != null) {
@@ -57,10 +79,11 @@ async function loadModel(onProgress?: (info: ProgressInfo) => void) {
         }
       };
 
-      // RMBG-2.0 uses a custom model type — load via AutoModel with config.
       const [model, processor] = await Promise.all([
         AutoModel.from_pretrained("briaai/RMBG-2.0", {
           config: { model_type: "custom" },
+          device: hasWebGPU ? "webgpu" : "wasm",
+          dtype: hasWebGPU ? "fp32" : "fp32",
           progress_callback,
         }) as Promise<ModelType>,
         AutoProcessor.from_pretrained("briaai/RMBG-2.0", {
@@ -78,7 +101,6 @@ async function loadModel(onProgress?: (info: ProgressInfo) => void) {
         }) as Promise<ProcessorType>,
       ]);
 
-      // Stash the processor alongside the model via a closure.
       processorPromise = Promise.resolve(processor);
       return model;
     })();
