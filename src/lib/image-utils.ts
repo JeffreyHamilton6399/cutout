@@ -145,6 +145,50 @@ export async function preprocessForInference(
   return { blob: out, width: w, height: h };
 }
 
+/**
+ * Invert the alpha channel of a transparent PNG — opaque pixels become
+ * transparent and vice versa. Use when the AI model removed the wrong part
+ * (e.g. kept the background and removed a dark subject). RGB is preserved;
+ * only alpha flips.
+ */
+export async function invertAlpha(pngBlob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(pngBlob);
+  const w = bitmap.width;
+  const h = bitmap.height;
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  try {
+    canvas = new OffscreenCanvas(w, h);
+  } catch {
+    canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = (canvas as OffscreenCanvas).getContext
+    ? (canvas as OffscreenCanvas).getContext("2d")!
+    : (canvas as HTMLCanvasElement).getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    // Invert alpha: 255 - a
+    data[i + 3] = 255 - data[i + 3];
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  if (canvas instanceof OffscreenCanvas) {
+    return canvas.convertToBlob({ type: "image/png" });
+  }
+  return new Promise<Blob>((resolve, reject) =>
+    (canvas as HTMLCanvasElement).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("invert failed"))),
+      "image/png",
+    ),
+  );
+}
+
 const FORMAT_MIME: Record<DownloadFormat, string> = {
   png: "image/png",
   jpeg: "image/jpeg",

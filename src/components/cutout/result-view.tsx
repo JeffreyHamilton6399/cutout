@@ -19,6 +19,7 @@ import {
   Palette,
   Check,
   ChevronDown,
+  FlipHorizontal,
 } from "lucide-react";
 import type {
   CutoutImage,
@@ -40,6 +41,9 @@ interface ResultViewProps {
   transparentPng: Blob;
   onNewFile: () => void;
   onRefine: () => void;
+  /** Flip which part is kept vs removed — use when the model inverted
+   * foreground/background (e.g. removed a dark subject on a light bg). */
+  onInvert: () => void;
   onUpdateImage: (patch: Partial<CutoutImage>) => void;
 }
 
@@ -48,6 +52,7 @@ export function ResultView({
   transparentPng,
   onNewFile,
   onRefine,
+  onInvert,
   onUpdateImage,
 }: ResultViewProps) {
   const [exporting, setExporting] = React.useState<DownloadFormat | null>(null);
@@ -157,15 +162,27 @@ export function ResultView({
               </ToggleGroup>
             </div>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRefine}
-              className="h-7 shrink-0 gap-1.5 text-xs"
-            >
-              <Eraser className="h-3.5 w-3.5" />
-              Refine edges
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onInvert}
+                className="h-7 gap-1.5 text-xs"
+                title="Flip which part is kept — use if the model removed the wrong part"
+              >
+                <FlipHorizontal className="h-3.5 w-3.5" />
+                Invert
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRefine}
+                className="h-7 gap-1.5 text-xs"
+              >
+                <Eraser className="h-3.5 w-3.5" />
+                Refine edges
+              </Button>
+            </div>
           </div>
 
           {/* Custom color picker (only when custom is selected) */}
