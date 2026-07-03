@@ -74,11 +74,7 @@ function describeKey(key: string): {
     k.startsWith("download") ||
     k.startsWith("init")
   ) {
-    const label =
-      modelPromise === null
-        ? "Loading AI model…"
-        : "Loading AI model (one-time download)";
-    return { label, stage: "model" };
+    return { label: "Loading AI model (one-time download)", stage: "model" };
   }
   if (k.startsWith("compute") || k.startsWith("inference")) {
     return { label: "Removing background…", stage: "inference" };
