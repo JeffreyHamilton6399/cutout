@@ -4,16 +4,21 @@ import type { NextConfig } from "next";
  * Cross-origin isolation headers.
  *
  * Setting `Cross-Origin-Opener-Policy: same-origin` and
- * `Cross-Origin-Embedder-Policy: require-corp` makes the page "cross-origin
+ * `Cross-Origin-Embedder-Policy: credentialless` makes the page "cross-origin
  * isolated". That unlocks `SharedArrayBuffer` and multi-threaded WebAssembly
  * for the in-browser background-removal model — a meaningful speedup on
  * multi-core devices (the @imgly WASM model otherwise falls back to a single
- * thread and prints a console warning).
+ * thread).
  *
- * Trade-off: the page can no longer load cross-origin resources without them
- * sending CORS headers. The only cross-origin resource Cutout loads is the
- * AI model from staticimgly.com, which is served with `Access-Control-Allow-Origin: *`,
- * so COEP is satisfied. Vercel serves these headers as-is.
+ * Why `credentialless` instead of `require-corp`:
+ * `require-corp` blocks any cross-origin resource that doesn't send a
+ * `Cross-Origin-Resource-Policy` header, which broke the @imgly model CDN
+ * fetch (the ONNX runtime's internal fetches don't always handle COEP).
+ * `credentialless` still enables cross-origin isolation but loads
+ * cross-origin resources without credentials instead of blocking them —
+ * the model downloads cleanly and multi-threaded WASM still works.
+ *
+ * Vercel serves these headers as-is.
  */
 const crossOriginIsolationHeaders = [
   {
@@ -22,7 +27,7 @@ const crossOriginIsolationHeaders = [
   },
   {
     key: "Cross-Origin-Embedder-Policy",
-    value: "require-corp",
+    value: "credentialless",
   },
 ];
 

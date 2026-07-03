@@ -39,6 +39,12 @@ export function ErrorView({ image, onRetry, onNewFile }: ErrorViewProps) {
         <div className="space-y-1.5">
           <p className="text-base font-semibold">Couldn&apos;t remove the background</p>
           <p className="mx-auto max-w-sm text-xs text-muted-foreground">{hint}</p>
+          {/* Show the actual error so the user (and we) can diagnose */}
+          {image.error && (
+            <p className="mx-auto max-w-sm break-words rounded-md bg-muted/60 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground">
+              {image.error}
+            </p>
+          )}
         </div>
 
         {image.originalUrl && (

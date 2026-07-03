@@ -148,6 +148,30 @@ export async function removeImageBackground(
     });
     return blob;
   } catch (err) {
+    // If the worker proxy failed, retry once on the main thread (slower
+    // but unblocks environments where the worker can't spawn).
+    const msg = err instanceof Error ? err.message : String(err);
+    const isWorkerError =
+      msg.includes("worker") ||
+      msg.includes("Worker") ||
+      msg.includes("Failed to fetch") ||
+      msg.includes("NetworkError");
+    if (isWorkerError) {
+      const blob = await removeBackground(input, {
+        signal: controller.signal,
+        model: modelForQuality(quality),
+        proxyToWorker: false,
+        device: "cpu",
+        output: { format: "image/png", quality: 0.8 },
+        progress: (key: string, current: number, total: number) => {
+          resetTimer();
+          const { label, stage } = describeKey(key);
+          const ratio = total > 0 ? Math.min(1, current / total) : 0;
+          onProgress?.({ ratio, label, stage });
+        },
+      });
+      return blob;
+    }
     // If we aborted due to timeout, surface a clearer message.
     if (controller.signal.reason instanceof Error && controller.signal.reason.message === "TIMEOUT") {
       throw new Error(
