@@ -26,7 +26,6 @@ import {
   exportWithBackground,
   downloadBlob,
   extForFormat,
-  invertAlpha,
   isAcceptedFile,
   MAX_FILE_BYTES,
   normalizeForProcessing,
@@ -338,34 +337,6 @@ export default function Home() {
     [],
   );
 
-  // ---- Invert: flip which part is kept vs removed. Use when the model
-  // removed the subject instead of the background (common with dark subjects
-  // on lighter backgrounds). Just inverts the alpha channel.
-  const handleInvert = React.useCallback(
-    async (imageId: string) => {
-      const current = transparentPngsRef.current[imageId];
-      if (!current) return;
-      try {
-        const inverted = await invertAlpha(current);
-        transparentPngsRef.current[imageId] = inverted;
-        setImages((prev) =>
-          prev.map((i) => {
-            if (i.id !== imageId) return i;
-            if (i.resultUrl) revokeImageUrl(i.resultUrl);
-            return {
-              ...i,
-              resultUrl: createImageUrl(inverted),
-              refined: true,
-            };
-          }),
-        );
-      } catch {
-        /* ignore — invert is best-effort */
-      }
-    },
-    [],
-  );
-
   // ---- Derived ----
   const currentImage =
     view.kind === "processing" ||
@@ -411,7 +382,6 @@ export default function Home() {
               transparentPng={transparentPngsRef.current[currentImage.id]}
               onNewFile={handleReset}
               onRefine={() => openRefine(currentImage.id)}
-              onInvert={() => handleInvert(currentImage.id)}
               onUpdateImage={(patch) => patchImage(currentImage.id, patch)}
             />
           )}

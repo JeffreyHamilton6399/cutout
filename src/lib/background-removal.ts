@@ -83,6 +83,114 @@ function describeKey(key: string): {
 }
 
 /**
+ * Letterbox the input image onto a slightly larger neutral-gray canvas before
+ * sending it to the model. This is the key fix for the "removed the wrong
+ * part" problem on dark subjects.
+ *
+ * Why it works: the isnet model segments foreground by looking for a bounded
+ * subject against a background. When a dark subject (e.g. a black hoodie)
+ * fills the frame edge-to-edge against a colored background, the model can't
+ * tell which is the bounded subject and sometimes inverts — keeping the
+ * background and removing the subject. By padding the image with a neutral
+ * gray border, we give the model a clear visual frame: the subject is now
+ * unambiguously the bounded content in the center, and the border reads as
+ * "edge", not as subject.
+ *
+ * The model's alpha output is at the letterboxed size, so we crop the
+ * padding back off afterwards to return a result at the original dimensions.
+ */
+const LETTERBOX_PAD_RATIO = 0.1; // 10% padding on each side
+const LETTERBOX_COLOR = "#808080"; // neutral mid-gray
+
+async function letterbox(
+  blob: Blob,
+): Promise<{ blob: Blob; padX: number; padY: number }> {
+  const bitmap = await createImageBitmap(blob);
+  const w = bitmap.width;
+  const h = bitmap.height;
+  const padX = Math.round(w * LETTERBOX_PAD_RATIO);
+  const padY = Math.round(h * LETTERBOX_PAD_RATIO);
+  const outW = w + padX * 2;
+  const outH = h + padY * 2;
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  try {
+    canvas = new OffscreenCanvas(outW, outH);
+  } catch {
+    canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+  }
+  const ctx = (canvas as OffscreenCanvas).getContext
+    ? (canvas as OffscreenCanvas).getContext("2d")!
+    : (canvas as HTMLCanvasElement).getContext("2d")!;
+  ctx.fillStyle = LETTERBOX_COLOR;
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.drawImage(bitmap, padX, padY, w, h);
+  bitmap.close?.();
+
+  if (canvas instanceof OffscreenCanvas) {
+    return { blob: await canvas.convertToBlob({ type: "image/png" }), padX, padY };
+  }
+  const out = await new Promise<Blob>((resolve, reject) =>
+    (canvas as HTMLCanvasElement).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("letterbox failed"))),
+      "image/png",
+    ),
+  );
+  return { blob: out, padX, padY };
+}
+
+/**
+ * Crop the letterbox padding back off the model's output so the result is at
+ * the original image dimensions.
+ */
+async function unletterbox(
+  pngBlob: Blob,
+  padX: number,
+  padY: number,
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(pngBlob);
+  const w = bitmap.width - padX * 2;
+  const h = bitmap.height - padY * 2;
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  try {
+    canvas = new OffscreenCanvas(w, h);
+  } catch {
+    canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = (canvas as OffscreenCanvas).getContext
+    ? (canvas as OffscreenCanvas).getContext("2d")!
+    : (canvas as HTMLCanvasElement).getContext("2d")!;
+  // Draw only the center region (skip the padding).
+  ctx.drawImage(
+    bitmap,
+    padX,
+    padY,
+    w,
+    h,
+    0,
+    0,
+    w,
+    h,
+  );
+  bitmap.close?.();
+
+  if (canvas instanceof OffscreenCanvas) {
+    return canvas.convertToBlob({ type: "image/png" });
+  }
+  return new Promise<Blob>((resolve, reject) =>
+    (canvas as HTMLCanvasElement).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("unletterbox failed"))),
+      "image/png",
+    ),
+  );
+}
+
+/**
  * Smooth the hard alpha edges of the model output. The isnet model produces
  * a binary-ish alpha matte with jagged transitions; a light blur on the
  * alpha channel (only) softens the subject/background edge, eliminating
@@ -215,8 +323,8 @@ export async function removeImageBackground(
     );
   };
 
-  const run = (useWorker: boolean) =>
-    removeBackground(input, {
+  const run = (img: Blob | File, useWorker: boolean) =>
+    removeBackground(img, {
       signal: controller.signal,
       model: modelForQuality(quality),
       proxyToWorker: useWorker,
@@ -231,9 +339,26 @@ export async function removeImageBackground(
     });
 
   try {
+    // Letterbox the input onto a neutral-gray padded canvas before
+    // inference. This gives the model a clear frame of reference so it
+    // doesn't confuse a dark subject with the background — the fix for
+    // "it removed the wrong part" on dark subjects (e.g. black hoodie
+    // on blue background).
+    let modelInput: Blob | File = input;
+    let padX = 0;
+    let padY = 0;
+    try {
+      const lb = await letterbox(input);
+      modelInput = lb.blob;
+      padX = lb.padX;
+      padY = lb.padY;
+    } catch {
+      // If letterboxing fails, proceed with the raw input.
+    }
+
     let blob: Blob;
     try {
-      blob = await run(true);
+      blob = await run(modelInput, true);
     } catch (err) {
       // If the worker proxy failed, retry once on the main thread (slower
       // but unblocks environments where the worker can't spawn).
@@ -244,7 +369,17 @@ export async function removeImageBackground(
         msg.includes("Failed to fetch") ||
         msg.includes("NetworkError");
       if (!isWorkerError) throw err;
-      blob = await run(false);
+      blob = await run(modelInput, false);
+    }
+
+    // Crop the letterbox padding back off so the result matches the
+    // original image dimensions.
+    if (padX > 0 || padY > 0) {
+      try {
+        blob = await unletterbox(blob, padX, padY);
+      } catch {
+        // If unletterbox fails, return the padded result — still usable.
+      }
     }
 
     // Smooth the jagged alpha edges before returning — the isnet model
