@@ -115,10 +115,22 @@ export async function removeImageBackground(
     else signal.addEventListener("abort", onCallerAbort, { once: true });
   }
 
-  const timer = setTimeout(
+  // Sliding timeout: reset whenever we receive progress. A slow first-run
+  // model download (~44MB) that's actively making progress won't time out,
+  // but a true hang (no progress for `timeoutMs`) will. This is the key
+  // robustness fix — a fixed 120s timeout was too short for slow connections
+  // downloading the model, causing false "doesn't process" failures.
+  let timer: ReturnType<typeof setTimeout> | null = setTimeout(
     () => controller.abort(new Error("TIMEOUT")),
     timeoutMs,
   );
+  const resetTimer = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(
+      () => controller.abort(new Error("TIMEOUT")),
+      timeoutMs,
+    );
+  };
 
   try {
     const blob = await removeBackground(input, {
@@ -128,6 +140,7 @@ export async function removeImageBackground(
       device: "cpu",
       output: { format: "image/png", quality: 0.8 },
       progress: (key: string, current: number, total: number) => {
+        resetTimer();
         const { label, stage } = describeKey(key);
         const ratio = total > 0 ? Math.min(1, current / total) : 0;
         onProgress?.({ ratio, label, stage });
@@ -143,7 +156,7 @@ export async function removeImageBackground(
     }
     throw err;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     if (signal) signal.removeEventListener("abort", onCallerAbort);
   }
 }

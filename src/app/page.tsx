@@ -121,7 +121,7 @@ export default function Home() {
   );
 
   const processOne = React.useCallback(
-    async (image: CutoutImage, quality: ModelQuality = "standard") => {
+    async (image: CutoutImage, quality: ModelQuality = "standard"): Promise<"done" | "error" | "aborted"> => {
       const controller = new AbortController();
       abortsRef.current[image.id] = controller;
 
@@ -171,8 +171,9 @@ export default function Home() {
           resultUrl,
           progress: { ratio: 1, label: "Done" },
         });
+        return "done";
       } catch (e) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return "aborted";
         const message =
           e instanceof Error ? e.message : "Failed to remove background";
         patchImage(image.id, {
@@ -180,6 +181,7 @@ export default function Home() {
           error: message,
           progress: { ratio: 0, label: "Failed" },
         });
+        return "error";
       } finally {
         delete abortsRef.current[image.id];
       }
@@ -212,14 +214,11 @@ export default function Home() {
         // Single-image flow — route to result on success, error view on failure.
         const img = newImages[0];
         setView({ kind: "processing", imageId: img.id });
-        void processOne(img, quality).then(() => {
+        void processOne(img, quality).then((outcome) => {
           setView((v) => {
             if (v.kind !== "processing" || v.imageId !== img.id) return v;
-            // Check the final status to decide where to go.
-            const final = imagesRef.current.find((i) => i.id === img.id);
-            if (final?.status === "error") {
-              return { kind: "error", imageId: img.id };
-            }
+            if (outcome === "error") return { kind: "error", imageId: img.id };
+            if (outcome === "aborted") return { kind: "empty" };
             return { kind: "result", imageId: img.id };
           });
         });
@@ -300,13 +299,11 @@ export default function Home() {
         progress: INITIAL_PROGRESS,
       });
       setView({ kind: "processing", imageId });
-      void processOne(img, settings.quality).then(() => {
+      void processOne(img, settings.quality).then((outcome) => {
         setView((v) => {
           if (v.kind !== "processing" || v.imageId !== imageId) return v;
-          const final = imagesRef.current.find((i) => i.id === imageId);
-          if (final?.status === "error") {
-            return { kind: "error", imageId };
-          }
+          if (outcome === "error") return { kind: "error", imageId };
+          if (outcome === "aborted") return { kind: "empty" };
           return { kind: "result", imageId };
         });
       });
@@ -342,7 +339,10 @@ export default function Home() {
 
   // ---- Derived ----
   const currentImage =
-    view.kind === "processing" || view.kind === "result" || view.kind === "refine"
+    view.kind === "processing" ||
+    view.kind === "result" ||
+    view.kind === "error" ||
+    view.kind === "refine"
       ? images.find((i) => i.id === view.imageId)
       : undefined;
 
