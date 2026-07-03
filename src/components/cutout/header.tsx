@@ -20,14 +20,21 @@ import {
   FileText,
   Github,
   Scissors,
+  Sparkles,
+  Check,
 } from "lucide-react";
 import { DonateDialog } from "./donate-dialog";
 import { LegalDialog } from "./legal-dialog";
+import type { ModelQuality } from "@/types/cutout";
 
 interface HeaderProps {
   /** Called when the user clicks the Cutout logo — resets the app to the
    * empty dropzone (cancels in-flight work, revokes blob URLs). */
   onReset?: () => void;
+  /** Current AI model quality. */
+  quality?: ModelQuality;
+  /** Called when the user changes the model quality. */
+  onQualityChange?: (q: ModelQuality) => void;
 }
 
 /**
@@ -36,12 +43,13 @@ interface HeaderProps {
  *  - Right: Donate (rose heart) + Settings gear dropdown
  *  - Dropdown contents:
  *      Light mode toggle
+ *      Quality submenu (Standard / Maximum)
  *      ── Legal ──
  *      Privacy Policy
  *      Terms of Service
  *      GitHub
  */
-export function Header({ onReset }: HeaderProps) {
+export function Header({ onReset, quality = "standard", onQualityChange }: HeaderProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   const [donateOpen, setDonateOpen] = React.useState(false);
@@ -117,6 +125,49 @@ export function Header({ onReset }: HeaderProps) {
                     <Moon className="h-4 w-4" />
                   )}
                   {isDark ? "Light mode" : "Dark mode"}
+                </span>
+              </DropdownMenuItem>
+
+              {/* Quality — flattened to two items. onSelect with preventDefault
+                  keeps the menu open so the checkmark updates live. */}
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onQualityChange?.("standard");
+                }}
+                className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5"
+              >
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    Standard
+                    {quality === "standard" && (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    ~44MB · fast · best for most photos
+                  </span>
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onQualityChange?.("maximum");
+                }}
+                className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5"
+              >
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    Maximum
+                    {quality === "maximum" && (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    ~176MB · best for dark subjects &amp; hair
+                  </span>
                 </span>
               </DropdownMenuItem>
 

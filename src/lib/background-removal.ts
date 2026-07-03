@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProgressInfo } from "@/types/cutout";
+import type { ModelQuality, ProgressInfo } from "@/types/cutout";
 
 /**
  * Lazy wrapper around `@imgly/background-removal`.
@@ -15,17 +15,21 @@ import type { ProgressInfo } from "@/types/cutout";
  * request is ever made with the user's image bytes.
  *
  * Performance / quality choices:
- *  - model: "isnet_fp16" — best quality/size balance (~44MB, fp16). The full
- *    "isnet" (fp32, ~176MB) gives only marginal quality gains at 4× the
- *    download, unacceptable on mobile. "isnet_quint8" (~11MB) is faster but
- *    noticeably lower quality on hair/fur edges.
+ *  - model: selectable — "standard" (isnet_fp16, ~44MB, fast) or
+ *    "maximum" (isnet fp32, ~176MB, best quality on dark subjects/hair).
  *  - proxyToWorker: true — runs inference in a Web Worker so the main thread
- *    (UI) never freezes. This is the single biggest UX win.
+ *    (UI) never freezes.
  *  - device: "cpu" — the library's "gpu" path targets WebGPU which is still
  *    experimental and unreliable across browsers; CPU WASM is consistent.
  *  - output: image/png — lossless, preserves alpha for transparency.
  *  - Multi-threaded WASM is enabled automatically when the page is
  *    cross-origin isolated (see COOP/COEP headers in next.config.ts).
+ *
+ * Robustness:
+ *  - Inference is wrapped in a timeout (default 120s). If the worker hangs
+ *    (rare, but happens on OOM or a stalled model fetch), we abort and
+ *    reject with a clear error so the UI can surface a Retry button instead
+ *    of spinning forever.
  */
 
 type RemoveBgOptions = {
@@ -33,7 +37,15 @@ type RemoveBgOptions = {
   onProgress?: (info: ProgressInfo) => void;
   /** Optional abort signal. */
   signal?: AbortSignal;
+  /** Which model to use. */
+  quality?: ModelQuality;
+  /** Hard timeout in ms. Default 120000 (2 min). */
+  timeoutMs?: number;
 };
+
+/** Default hard timeout. The model + inference normally takes 5-30s; we
+ * allow 2 minutes for slow devices + first-run model download combined. */
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 let modulePromise: Promise<typeof import("@imgly/background-removal")> | null =
   null;
@@ -45,10 +57,12 @@ function loadModule() {
   return modulePromise;
 }
 
+function modelForQuality(quality: ModelQuality): "isnet_fp16" | "isnet" {
+  return quality === "maximum" ? "isnet" : "isnet_fp16";
+}
+
 /**
  * Mapping from the library's progress keys to user-friendly stage labels.
- * The library emits keys like `fetch:/path/to/model.onnx` while downloading
- * the model and `compute:inference` while running inference.
  */
 function describeKey(key: string): {
   label: string;
@@ -60,10 +74,11 @@ function describeKey(key: string): {
     k.startsWith("download") ||
     k.startsWith("init")
   ) {
-    return {
-      label: "Loading AI model (one-time 44MB download)",
-      stage: "model",
-    };
+    const label =
+      modelPromise === null
+        ? "Loading AI model…"
+        : "Loading AI model (one-time download)";
+    return { label, stage: "model" };
   }
   if (k.startsWith("compute") || k.startsWith("inference")) {
     return { label: "Removing background…", stage: "inference" };
@@ -73,33 +88,64 @@ function describeKey(key: string): {
 
 /**
  * Remove the background from a File/Blob and return a transparent PNG Blob.
+ *
+ * Wraps the library call in a timeout race — if the worker hangs, we abort
+ * via the signal and reject, so the caller can show a retry instead of
+ * hanging forever.
  */
 export async function removeImageBackground(
   input: Blob | File,
   options: RemoveBgOptions = {},
 ): Promise<Blob> {
-  const { onProgress, signal } = options;
+  const {
+    onProgress,
+    signal,
+    quality = "standard",
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = options;
   const mod = await loadModule();
   const removeBackground = mod.removeBackground;
 
-  const blob = await removeBackground(input, {
-    signal,
-    // Best quality/size model. See file header for rationale.
-    model: "isnet_fp16",
-    // Run inference in a Web Worker so the UI thread never blocks.
-    proxyToWorker: true,
-    // CPU WASM is the consistent, well-supported path.
-    device: "cpu",
-    // Lossless transparent PNG output.
-    output: { format: "image/png", quality: 0.8 },
-    progress: (key: string, current: number, total: number) => {
-      const { label, stage } = describeKey(key);
-      const ratio = total > 0 ? Math.min(1, current / total) : 0;
-      onProgress?.({ ratio, label, stage });
-    },
-  });
+  // We need our own controller so we can fire the timeout, but we also
+  // respect a caller-supplied signal.
+  const controller = new AbortController();
+  const onCallerAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onCallerAbort, { once: true });
+  }
 
-  return blob;
+  const timer = setTimeout(
+    () => controller.abort(new Error("TIMEOUT")),
+    timeoutMs,
+  );
+
+  try {
+    const blob = await removeBackground(input, {
+      signal: controller.signal,
+      model: modelForQuality(quality),
+      proxyToWorker: true,
+      device: "cpu",
+      output: { format: "image/png", quality: 0.8 },
+      progress: (key: string, current: number, total: number) => {
+        const { label, stage } = describeKey(key);
+        const ratio = total > 0 ? Math.min(1, current / total) : 0;
+        onProgress?.({ ratio, label, stage });
+      },
+    });
+    return blob;
+  } catch (err) {
+    // If we aborted due to timeout, surface a clearer message.
+    if (controller.signal.reason instanceof Error && controller.signal.reason.message === "TIMEOUT") {
+      throw new Error(
+        "Background removal timed out. Try a smaller image or the Standard quality mode.",
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onCallerAbort);
+  }
 }
 
 /**
@@ -107,13 +153,14 @@ export async function removeImageBackground(
  * Called on idle after terms acceptance so the first real removal is fast.
  */
 export async function preloadBackgroundRemovalModel(
+  quality: ModelQuality = "standard",
   onProgress?: (info: ProgressInfo) => void,
 ): Promise<void> {
   try {
     const mod = await loadModule();
     if (typeof mod.preload === "function") {
       await mod.preload({
-        model: "isnet_fp16",
+        model: modelForQuality(quality),
         device: "cpu",
         progress: (key: string, current: number, total: number) => {
           const { label } = describeKey(key);

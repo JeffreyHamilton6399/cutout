@@ -23,6 +23,7 @@ function readSettings(): AppSettings {
       theme: parsed.theme ?? DEFAULT_SETTINGS.theme,
       termsAccepted: parsed.termsAccepted ?? false,
       termsAcceptedAt: parsed.termsAcceptedAt ?? null,
+      quality: parsed.quality ?? DEFAULT_SETTINGS.quality,
     };
   } catch {
     return DEFAULT_SETTINGS;

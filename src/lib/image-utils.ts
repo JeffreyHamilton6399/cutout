@@ -79,6 +79,72 @@ export async function readDimensions(
   return { width: w, height: h };
 }
 
+/**
+ * Maximum image edge (px) we send to the AI model. The model infers at
+ * 1024px internally, so anything larger just wastes memory on decode/encode
+ * and is the #1 cause of hangs/OOM on mobile with big phone photos.
+ * The alpha matte is at 1024px regardless; we keep 2048px of subject detail.
+ */
+export const MAX_INFERENCE_EDGE = 2048;
+
+/**
+ * Decode + (if needed) downscale an image so its longest edge is at most
+ * `maxEdge` px. Returns a PNG blob ready for the model. If the image is
+ * already small enough, returns a re-encoded PNG copy (still cheap).
+ *
+ * This is the single biggest robustness win against hangs: a 4000×3000
+ * phone photo becomes 2048×1536, cutting decode/encode work ~4× with no
+ * meaningful quality loss (the model only sees 1024px anyway).
+ */
+export async function preprocessForInference(
+  blob: Blob,
+  maxEdge: number = MAX_INFERENCE_EDGE,
+): Promise<{ blob: Blob; width: number; height: number }> {
+  const bitmap = await createImageBitmap(blob);
+  const origW = bitmap.width;
+  const origH = bitmap.height;
+  const longest = Math.max(origW, origH);
+
+  if (longest <= maxEdge) {
+    // Already small enough — return original dims; caller passes the
+    // original blob to avoid a needless re-encode.
+    bitmap.close?.();
+    return { blob, width: origW, height: origH };
+  }
+
+  const scale = maxEdge / longest;
+  const w = Math.round(origW * scale);
+  const h = Math.round(origH * scale);
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  try {
+    canvas = new OffscreenCanvas(w, h);
+  } catch {
+    canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = (canvas as OffscreenCanvas).getContext
+    ? (canvas as OffscreenCanvas).getContext("2d")!
+    : (canvas as HTMLCanvasElement).getContext("2d")!;
+  // High-quality resampling.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+
+  const out =
+    canvas instanceof OffscreenCanvas
+      ? await canvas.convertToBlob({ type: "image/png" })
+      : await new Promise<Blob>((resolve, reject) =>
+          (canvas as HTMLCanvasElement).toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("resize failed"))),
+            "image/png",
+          ),
+        );
+  return { blob: out, width: w, height: h };
+}
+
 const FORMAT_MIME: Record<DownloadFormat, string> = {
   png: "image/png",
   jpeg: "image/jpeg",

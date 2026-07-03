@@ -7,11 +7,13 @@ import { ProcessingView } from "@/components/cutout/processing-view";
 import { ResultView } from "@/components/cutout/result-view";
 import { BatchView } from "@/components/cutout/batch-view";
 import { RefineTool } from "@/components/cutout/refine-tool";
+import { ErrorView } from "@/components/cutout/error-view";
 import { TermsAcceptanceDialog } from "@/components/cutout/terms-acceptance-dialog";
 import type {
   AppMode,
   CutoutImage,
   ImageStatus,
+  ModelQuality,
   ProgressInfo,
 } from "@/types/cutout";
 import { useAppSettings } from "@/lib/terms-storage";
@@ -27,6 +29,7 @@ import {
   isAcceptedFile,
   MAX_FILE_BYTES,
   normalizeForProcessing,
+  preprocessForInference,
   readDimensions,
   revokeImageUrl,
   sanitizeFilename,
@@ -38,6 +41,7 @@ type View =
   | { kind: "empty" }
   | { kind: "processing"; imageId: string }
   | { kind: "result"; imageId: string }
+  | { kind: "error"; imageId: string }
   | { kind: "batch" }
   | { kind: "refine"; imageId: string };
 
@@ -67,6 +71,15 @@ export default function Home() {
   const transparentPngsRef = React.useRef<Record<string, Blob>>({});
   // Track abort controllers so unmount / "new file" can cancel in-flight work.
   const abortsRef = React.useRef<Record<string, AbortController>>({});
+  // Mirror of `images` so async callbacks can read the latest status without
+  // re-subscribing (used to route to the error view after processOne settles).
+  const imagesRef = React.useRef<CutoutImage[]>([]);
+
+  // Keep imagesRef in sync so async `.then()` callbacks can read the latest
+  // status (used to route to the error view after processOne settles).
+  React.useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
 
   // ---- Cleanup on unmount ----
   React.useEffect(() => {
@@ -78,11 +91,12 @@ export default function Home() {
   }, []);
 
   // ---- Preload the AI model on idle once terms are accepted, so the first
-  // real background removal is fast (the ~44MB download happens in the
-  // background, cached by the browser for all subsequent runs).
+  // real background removal is fast (the model download happens in the
+  // background, cached by the browser for all subsequent runs). Preloads
+  // the currently-selected quality.
   React.useEffect(() => {
     if (!hydrated || !settings.termsAccepted) return;
-    const run = () => preloadBackgroundRemovalModel();
+    const run = () => preloadBackgroundRemovalModel(settings.quality);
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       const handle = (window as Window & {
         requestIdleCallback: (cb: () => void) => number;
@@ -94,7 +108,7 @@ export default function Home() {
     }
     const t = window.setTimeout(run, 1500);
     return () => window.clearTimeout(t);
-  }, [hydrated, settings.termsAccepted]);
+  }, [hydrated, settings.termsAccepted, settings.quality]);
 
   // ---- Helpers ----
   const patchImage = React.useCallback(
@@ -107,7 +121,7 @@ export default function Home() {
   );
 
   const processOne = React.useCallback(
-    async (image: CutoutImage) => {
+    async (image: CutoutImage, quality: ModelQuality = "standard") => {
       const controller = new AbortController();
       abortsRef.current[image.id] = controller;
 
@@ -117,19 +131,23 @@ export default function Home() {
       try {
         setStage("decoding", { ratio: 0.05, label: "Decoding image…" });
         const normalized = await normalizeForProcessing(image.file);
-        const dims = await readDimensions(normalized).catch(() => ({
-          width: 0,
-          height: 0,
-        }));
-        patchImage(image.id, dims);
+        // Pre-resize huge images so the model + encode/decode don't hang or
+        // OOM. The model infers at 1024px internally, so capping the input
+        // at 2048px loses no meaningful quality.
+        const pre = await preprocessForInference(normalized);
+        patchImage(image.id, { width: pre.width, height: pre.height });
 
         setStage("loading-model", {
           ratio: 0.1,
-          label: "Loading AI model (one-time 40MB download)",
+          label:
+            quality === "maximum"
+              ? "Loading Maximum model (one-time 176MB download)"
+              : "Loading AI model (one-time 44MB download)",
         });
 
-        const result = await removeImageBackground(normalized, {
+        const result = await removeImageBackground(pre.blob, {
           signal: controller.signal,
+          quality,
           onProgress: (info) => {
             // Map model stage (0.1–0.6) and inference stage (0.6–1.0).
             const isModel = info.label.toLowerCase().includes("model") ||
@@ -187,25 +205,31 @@ export default function Home() {
       }
 
       const newImages = accepted.map(makeImage);
+      const quality = settings.quality;
       setImages((prev) => [...prev, ...newImages]);
 
       if (newImages.length === 1 && images.length === 0) {
-        // Single-image flow
-        setView({ kind: "processing", imageId: newImages[0].id });
-        void processOne(newImages[0]).then(() => {
-          setView((v) =>
-            v.kind === "processing" && v.imageId === newImages[0].id
-              ? { kind: "result", imageId: newImages[0].id }
-              : v,
-          );
+        // Single-image flow — route to result on success, error view on failure.
+        const img = newImages[0];
+        setView({ kind: "processing", imageId: img.id });
+        void processOne(img, quality).then(() => {
+          setView((v) => {
+            if (v.kind !== "processing" || v.imageId !== img.id) return v;
+            // Check the final status to decide where to go.
+            const final = imagesRef.current.find((i) => i.id === img.id);
+            if (final?.status === "error") {
+              return { kind: "error", imageId: img.id };
+            }
+            return { kind: "result", imageId: img.id };
+          });
         });
       } else {
         // Batch flow
         setView({ kind: "batch" });
-        void runWithConcurrency(newImages, 2, (img) => processOne(img));
+        void runWithConcurrency(newImages, 2, (img) => processOne(img, quality));
       }
     },
-    [images.length, processOne],
+    [images.length, processOne, settings.quality],
   );
 
   // ---- Add more files in batch ----
@@ -223,12 +247,13 @@ export default function Home() {
         );
         if (valid.length === 0) return;
         const newImages = valid.map(makeImage);
+        const quality = settings.quality;
         setImages((prev) => [...prev, ...newImages]);
-        void runWithConcurrency(newImages, 2, (img) => processOne(img));
+        void runWithConcurrency(newImages, 2, (img) => processOne(img, quality));
       }
     };
     input.click();
-  }, [processOne]);
+  }, [processOne, settings.quality]);
 
   // ---- Reset: cancel everything, revoke URLs, return to the dropzone.
   // Used by both the "New file" button and clicking the Cutout logo.
@@ -261,6 +286,32 @@ export default function Home() {
       );
     },
     [],
+  );
+
+  // ---- Retry: re-process a failed image (same file, fresh attempt). ----
+  const handleRetry = React.useCallback(
+    (imageId: string) => {
+      const img = imagesRef.current.find((i) => i.id === imageId);
+      if (!img) return;
+      // Clear the error + reset progress, then re-run.
+      patchImage(imageId, {
+        status: "queued",
+        error: undefined,
+        progress: INITIAL_PROGRESS,
+      });
+      setView({ kind: "processing", imageId });
+      void processOne(img, settings.quality).then(() => {
+        setView((v) => {
+          if (v.kind !== "processing" || v.imageId !== imageId) return v;
+          const final = imagesRef.current.find((i) => i.id === imageId);
+          if (final?.status === "error") {
+            return { kind: "error", imageId };
+          }
+          return { kind: "result", imageId };
+        });
+      });
+    },
+    [patchImage, processOne, settings.quality],
   );
 
   // ---- Refine ----
@@ -308,7 +359,11 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-background">
-      <Header onReset={handleReset} />
+      <Header
+        onReset={handleReset}
+        quality={settings.quality}
+        onQualityChange={(q) => update({ quality: q })}
+      />
 
       <main className="cutout-scroll flex-1 overflow-hidden">
         {view.kind === "empty" && (
@@ -330,6 +385,14 @@ export default function Home() {
               onUpdateImage={(patch) => patchImage(currentImage.id, patch)}
             />
           )}
+
+        {view.kind === "error" && currentImage && (
+          <ErrorView
+            image={currentImage}
+            onRetry={() => handleRetry(currentImage.id)}
+            onNewFile={handleReset}
+          />
+        )}
 
         {view.kind === "batch" && (
           <BatchView

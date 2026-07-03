@@ -61,14 +61,26 @@ export interface CutoutImage {
 
 export type AppMode = "single" | "batch";
 
+/**
+ * AI model quality.
+ * - "standard" → isnet_fp16 (~44MB). Best quality/size balance. Fast.
+ * - "maximum"  → isnet fp32 (~176MB). Best accuracy on hard edges, dark
+ *   subjects, hair, fur. Slower + bigger one-time download.
+ */
+export type ModelQuality = "standard" | "maximum";
+
 export interface AppSettings {
   theme: "light" | "dark" | "system";
   termsAccepted: boolean;
   termsAcceptedAt: string | null;
+  /** AI model quality. Defaults to "standard"; switch to "maximum" for
+   * hard images (dark subjects, fine hair). */
+  quality: ModelQuality;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   termsAccepted: false,
   termsAcceptedAt: null,
+  quality: "standard",
 };
