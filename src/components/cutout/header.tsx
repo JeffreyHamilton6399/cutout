@@ -23,6 +23,7 @@ import {
   Sparkles,
   Check,
 } from "lucide-react";
+import { FeedbackButton } from "@/components/feedback-button";
 import { DonateDialog } from "./donate-dialog";
 import { LegalDialog } from "./legal-dialog";
 import type { ModelQuality } from "@/types/cutout";
@@ -84,14 +85,15 @@ export function Header({ onReset, quality = "standard", onQualityChange }: Heade
 
         {/* Right actions — matches the reference: red-bordered pill Donate
             button (red heart + white text) and a plain gear icon (no box). */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <FeedbackButton />
           <Button
             variant="outline"
             size="sm"
             onClick={() => setDonateOpen(true)}
-            className="h-7 gap-1.5 rounded-full border-rose-500/60 px-3 text-foreground hover:bg-rose-500/10 hover:text-foreground dark:text-foreground"
+            className="h-7 gap-1.5 rounded-full border-rose-200 px-3 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
           >
-            <Heart className="h-3.5 w-3.5 text-rose-600 dark:text-rose-500" />
+            <Heart className="size-3.5" />
             <span className="hidden sm:inline">Donate</span>
           </Button>
 

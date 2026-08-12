@@ -9,6 +9,7 @@ import { BatchView } from "@/components/cutout/batch-view";
 import { RefineTool } from "@/components/cutout/refine-tool";
 import { ErrorView } from "@/components/cutout/error-view";
 import { TermsAcceptanceDialog } from "@/components/cutout/terms-acceptance-dialog";
+import { SiteFooter } from "@/components/site-footer";
 import type {
   AppMode,
   CutoutImage,
@@ -419,7 +420,7 @@ export default function Home() {
           )}
       </main>
 
-      <Footer />
+      <SiteFooter />
 
       {/* First-run terms gate */}
       <TermsAcceptanceDialog
@@ -431,13 +432,5 @@ export default function Home() {
         }}
       />
     </div>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="flex h-8 shrink-0 items-center justify-center border-t px-3 text-[11px] text-muted-foreground">
-      V1 · Jeffrey Hamilton
-    </footer>
   );
 }
