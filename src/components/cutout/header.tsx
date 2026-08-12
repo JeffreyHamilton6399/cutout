@@ -1,31 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useTheme } from "next-themes";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+import { Check, Heart, Scissors, Sparkles } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import {
-  Settings,
-  Heart,
-  Sun,
-  Moon,
-  ShieldCheck,
-  FileText,
-  Github,
-  Scissors,
-  Sparkles,
-  Check,
-} from "lucide-react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { FeedbackButton } from "@/components/feedback-button";
+import { SiteSettingsMenu } from "@/components/site-settings-menu";
 import { DonateDialog } from "./donate-dialog";
-import { LegalDialog } from "./legal-dialog";
 import type { ModelQuality } from "@/types/cutout";
 
 interface HeaderProps {
@@ -39,32 +21,12 @@ interface HeaderProps {
 }
 
 /**
- * App header. Matches the reference screenshot:
- *  - Left: Cutout logo (scissors SVG + wordmark) — click to start over
- *  - Right: Donate (rose heart) + Settings gear dropdown
- *  - Dropdown contents:
- *      Light mode toggle
- *      Quality submenu (Standard / Maximum)
- *      ── Legal ──
- *      Privacy Policy
- *      Terms of Service
- *      GitHub
+ * App header. Chrome (gear menu, legal dialogs, GitHub link) comes from the
+ * shared SiteSettingsMenu; Cutout's own model-quality setting is injected
+ * into it as children so it sits under the theme toggle.
  */
 export function Header({ onReset, quality = "standard", onQualityChange }: HeaderProps) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
   const [donateOpen, setDonateOpen] = React.useState(false);
-  const [legalOpen, setLegalOpen] = React.useState<null | "privacy" | "terms">(null);
-
-  React.useEffect(() => setMounted(true), []);
-
-  const isDark = mounted ? resolvedTheme === "dark" : true;
-
-  const toggleTheme = () => {
-    // Toggle between dark and light explicitly (skip "system" in the toggle
-    // so the switch is deterministic).
-    setTheme(isDark ? "light" : "dark");
-  };
 
   return (
     <>
@@ -83,8 +45,6 @@ export function Header({ onReset, quality = "standard", onQualityChange }: Heade
           </span>
         </button>
 
-        {/* Right actions — matches the reference: red-bordered pill Donate
-            button (red heart + white text) and a plain gear icon (no box). */}
         <div className="flex items-center gap-1.5">
           <FeedbackButton />
           <Button
@@ -97,128 +57,64 @@ export function Header({ onReset, quality = "standard", onQualityChange }: Heade
             <span className="hidden sm:inline">Donate</span>
           </Button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Settings"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/80 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Settings className="h-[18px] w-[18px]" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-56 rounded-lg p-1.5"
-              sideOffset={6}
-            >
-              {/* Light mode toggle */}
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  toggleTheme();
-                }}
-                className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-sm"
-              >
-                <span className="flex items-center gap-2">
-                  {isDark ? (
-                    <Sun className="h-4 w-4" />
-                  ) : (
-                    <Moon className="h-4 w-4" />
-                  )}
-                  {isDark ? "Light mode" : "Dark mode"}
-                </span>
-              </DropdownMenuItem>
-
-              {/* Quality — flattened to two items. onSelect with preventDefault
-                  keeps the menu open so the checkmark updates live. */}
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onQualityChange?.("standard");
-                }}
-                className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5"
-              >
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    Standard
-                    {quality === "standard" && (
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                    )}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    ~44MB · fast · best for most photos
-                  </span>
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onQualityChange?.("maximum");
-                }}
-                className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5"
-              >
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    Maximum
-                    {quality === "maximum" && (
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                    )}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    ~176MB · best for dark subjects &amp; hair
-                  </span>
-                </span>
-              </DropdownMenuItem>
-
-              <DropdownMenuLabel className="px-2 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Legal
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator className="my-1" />
-
-              <DropdownMenuItem
-                onSelect={() => setLegalOpen("privacy")}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Privacy Policy
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => setLegalOpen("terms")}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
-              >
-                <FileText className="h-4 w-4" />
-                Terms of Service
-              </DropdownMenuItem>
-
-              <DropdownMenuSeparator className="my-1" />
-              <DropdownMenuItem
-                asChild
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
-              >
-                <a
-                  href="https://github.com/JeffreyHamilton6399"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Github className="h-4 w-4" />
-                  GitHub
-                </a>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <SiteSettingsMenu>
+            <QualityItem
+              value="standard"
+              current={quality}
+              label="Standard"
+              hint="~44MB · fast · best for most photos"
+              onSelect={onQualityChange}
+            />
+            <QualityItem
+              value="maximum"
+              current={quality}
+              label="Maximum"
+              hint="~176MB · best for dark subjects & hair"
+              onSelect={onQualityChange}
+            />
+          </SiteSettingsMenu>
         </div>
       </header>
 
       <DonateDialog open={donateOpen} onOpenChange={setDonateOpen} />
-      <LegalDialog
-        open={legalOpen !== null}
-        onOpenChange={(o) => !o && setLegalOpen(null)}
-        kind={legalOpen ?? "privacy"}
-      />
     </>
+  );
+}
+
+/** One model-quality row. preventDefault keeps the menu open so the
+ * checkmark updates in place. */
+function QualityItem({
+  value,
+  current,
+  label,
+  hint,
+  onSelect,
+}: {
+  value: ModelQuality;
+  current: ModelQuality;
+  label: string;
+  hint: string;
+  onSelect?: (q: ModelQuality) => void;
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={(e) => {
+        e.preventDefault();
+        onSelect?.(value);
+      }}
+      className="flex cursor-pointer items-start gap-2"
+    >
+      <Sparkles className="mt-0.5 size-4 shrink-0" />
+      <span className="flex flex-col">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          {label}
+          {current === value && (
+            <Check className="size-3.5 text-emerald-600" />
+          )}
+        </span>
+        <span className="text-[11px] text-muted-foreground">{hint}</span>
+      </span>
+    </DropdownMenuItem>
   );
 }
 
