@@ -8,7 +8,6 @@ import { ResultView } from "@/components/cutout/result-view";
 import { BatchView } from "@/components/cutout/batch-view";
 import { RefineTool } from "@/components/cutout/refine-tool";
 import { ErrorView } from "@/components/cutout/error-view";
-import { TermsAcceptanceDialog } from "@/components/cutout/terms-acceptance-dialog";
 import { SiteFooter } from "@/components/site-footer";
 import type {
   AppMode,
@@ -62,7 +61,7 @@ function makeImage(file: File): CutoutImage {
 }
 
 export default function Home() {
-  const { settings, hydrated, acceptTerms } = useAppSettings();
+  const { settings, hydrated } = useAppSettings();
 
   const [images, setImages] = React.useState<CutoutImage[]>([]);
   const [view, setView] = React.useState<View>({ kind: "empty" });
@@ -96,7 +95,7 @@ export default function Home() {
   // background, cached by the browser for all subsequent runs). Preloads
   // the currently-selected quality.
   React.useEffect(() => {
-    if (!hydrated || !settings.termsAccepted) return;
+    if (!hydrated) return;
     const run = () => preloadBackgroundRemovalModel(settings.quality);
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       const handle = (window as Window & {
@@ -109,7 +108,7 @@ export default function Home() {
     }
     const t = window.setTimeout(run, 1500);
     return () => window.clearTimeout(t);
-  }, [hydrated, settings.termsAccepted, settings.quality]);
+  }, [hydrated, settings.quality]);
 
   // ---- Helpers ----
   const patchImage = React.useCallback(
@@ -350,10 +349,7 @@ export default function Home() {
   const refineImage =
     view.kind === "refine" ? images.find((i) => i.id === view.imageId) : undefined;
 
-  const showTerms = hydrated && !settings.termsAccepted;
-
-  // Don't render the app shell until hydrated (prevents theme flash + terms
-  // dialog flicker).
+  // Don't render the app shell until hydrated (prevents a theme flash).
   if (!hydrated) {
     return <div className="h-dvh w-screen bg-background" />;
   }
@@ -421,16 +417,6 @@ export default function Home() {
       </main>
 
       <SiteFooter />
-
-      {/* First-run terms gate */}
-      <TermsAcceptanceDialog
-        open={showTerms}
-        onAccept={acceptTerms}
-        onDecline={() => {
-          // Decline: keep the dialog open (no way to enter the app). We just
-          // surface a message; the app stays locked.
-        }}
-      />
     </div>
   );
 }
