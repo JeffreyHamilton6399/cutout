@@ -4,12 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ImagePlus, Lock } from "lucide-react";
-import {
-  ACCEPT_ATTR,
-  isAcceptedFile,
-  MAX_FILE_BYTES,
-  formatBytes,
-} from "@/lib/image-utils";
+import { ACCEPT_ATTR, isAcceptedFile } from "@/lib/image-utils";
 
 interface DropzoneProps {
   onFiles: (files: File[]) => void;
@@ -78,7 +73,7 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
 
   return (
     <div className="flex h-full w-full items-center justify-center p-4">
-      <div className="w-full max-w-xl">
+      <div className="w-full max-w-md">
         <div
           role="button"
           tabIndex={0}
@@ -94,7 +89,7 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
           onDragEnter={onDragEnter}
           onDragLeave={onDragLeave}
           className={cn(
-            "group relative flex min-h-[280px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors sm:min-h-[340px]",
+            "group relative mx-auto flex min-h-[300px] w-full max-w-md cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors",
             dragging
               ? "border-emerald-500 bg-emerald-500/5"
               : "border-border hover:border-emerald-500/50 hover:bg-muted/40",
@@ -102,21 +97,29 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
         >
           <div
             className={cn(
-              "flex h-12 w-12 items-center justify-center rounded-full border transition-colors",
+              "flex size-12 items-center justify-center rounded-full border transition-colors",
               dragging
                 ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                 : "border-border text-muted-foreground group-hover:border-emerald-500/50 group-hover:text-emerald-600 dark:group-hover:text-emerald-400",
             )}
           >
-            <ImagePlus className="h-5 w-5" />
+            <ImagePlus className="size-6" />
           </div>
 
-          <p className="text-base font-semibold sm:text-lg">Drop a photo</p>
+          <p className="text-base font-semibold tracking-tight">Drop a photo</p>
 
-          <p className="text-[11px] text-muted-foreground">
-            or paste from clipboard · PNG, JPEG, WebP, HEIC · max{" "}
-            {formatBytes(MAX_FILE_BYTES)}
+          <p className="max-w-[34ch] text-sm text-muted-foreground">
+            Remove backgrounds with AI — running entirely in your browser.
           </p>
+
+          <p className="text-xs text-muted-foreground/70">
+            or paste from clipboard
+          </p>
+
+          <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            <Lock className="size-3 text-emerald-500" />
+            No uploads · No sign-up · 100% free
+          </span>
 
           <input
             ref={inputRef}
@@ -146,13 +149,10 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
           </div>
         )}
 
-        <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-          <Lock className="h-3 w-3" />
-          <span>
-            Remove.bg uploads your photos to their servers. We don&apos;t — the
-            AI runs entirely in your browser.
-          </span>
-        </div>
+        <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+          <Lock className="size-3.5 shrink-0" />
+          Remove.bg uploads your photos. We don&apos;t.
+        </p>
       </div>
     </div>
   );
