@@ -72,8 +72,8 @@ export function Dropzone({ onFiles, error, onErrorClear }: DropzoneProps) {
   }, [onPaste]);
 
   return (
-    <div className="flex h-full w-full items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="flex h-full w-full overflow-y-auto p-4">
+      <div className="m-auto w-full max-w-md shrink-0">
         <div
           role="button"
           tabIndex={0}
