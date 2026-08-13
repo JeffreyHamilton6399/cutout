@@ -349,11 +349,9 @@ export default function Home() {
   const refineImage =
     view.kind === "refine" ? images.find((i) => i.id === view.imageId) : undefined;
 
-  // Don't render the app shell until hydrated (prevents a theme flash).
-  if (!hydrated) {
-    return <div className="h-dvh w-screen bg-background" />;
-  }
-
+  // The shell renders before settings hydrate: server and client both start
+  // from DEFAULT_SETTINGS, so there's no mismatch, and next-themes applies the
+  // theme class pre-paint. Gating here only bought a blank first paint.
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-background">
       <Header
