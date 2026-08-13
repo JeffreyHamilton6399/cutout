@@ -61,7 +61,7 @@ function makeImage(file: File): CutoutImage {
 }
 
 export default function Home() {
-  const { settings, hydrated } = useAppSettings();
+  const { settings, hydrated, update } = useAppSettings();
 
   const [images, setImages] = React.useState<CutoutImage[]>([]);
   const [view, setView] = React.useState<View>({ kind: "empty" });
@@ -97,14 +97,16 @@ export default function Home() {
   React.useEffect(() => {
     if (!hydrated) return;
     const run = () => preloadBackgroundRemovalModel(settings.quality);
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const handle = (window as Window & {
-        requestIdleCallback: (cb: () => void) => number;
-      }).requestIdleCallback(run);
-      return () =>
-        (window as Window & {
-          cancelIdleCallback: (h: number) => void;
-        }).cancelIdleCallback(handle);
+
+    // Safari still lacks requestIdleCallback, so feature-detect off a typed
+    // alias — an `in` check here narrows `window` itself away in the fallback.
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      const handle = w.requestIdleCallback(run);
+      return () => w.cancelIdleCallback?.(handle);
     }
     const t = window.setTimeout(run, 1500);
     return () => window.clearTimeout(t);

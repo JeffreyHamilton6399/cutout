@@ -2,6 +2,7 @@
 
 import type { ModelQuality, ProgressInfo } from "@/types/cutout";
 import { removeBackgroundRmbg, preloadRmbg } from "@/lib/rmbg";
+import { abortable } from "@/lib/concurrency";
 
 /**
  * Background-removal engine.
@@ -24,6 +25,7 @@ type RemoveBgOptions = {
 };
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+
 
 let imglyPromise: Promise<typeof import("@imgly/background-removal")> | null =
   null;
@@ -241,19 +243,23 @@ async function removeWithImgly(
   };
 
   try {
-    const blob = await removeBackground(input, {
-      signal: controller.signal,
-      model: modelForQuality(quality),
-      proxyToWorker: true,
-      device: "cpu",
-      output: { format: "image/png", quality: 0.8 },
-      progress: (key: string, current: number, total: number) => {
-        resetTimer();
-        const { label, stage } = describeKey(key);
-        const ratio = total > 0 ? Math.min(1, current / total) : 0;
-        onProgress?.({ ratio, label, stage });
-      },
-    });
+    // `controller.signal` merges the caller's abort with the local timeout;
+    // the library takes no signal of its own, so we race it here.
+    const blob = await abortable(
+      removeBackground(input, {
+        model: modelForQuality(quality),
+        proxyToWorker: true,
+        device: "cpu",
+        output: { format: "image/png", quality: 0.8 },
+        progress: (key: string, current: number, total: number) => {
+          resetTimer();
+          const { label } = describeKey(key);
+          const ratio = total > 0 ? Math.min(1, current / total) : 0;
+          onProgress?.({ ratio, label });
+        },
+      }),
+      controller.signal,
+    );
     return blob;
   } finally {
     if (timer) clearTimeout(timer);
@@ -271,22 +277,31 @@ export async function removeImageBackground(
   input: Blob | File,
   options: RemoveBgOptions = {},
 ): Promise<Blob> {
-  const { onProgress } = options;
+  const { onProgress, signal } = options;
 
   let blob: Blob;
   try {
     // Primary engine: RMBG-2.0 — best quality, handles hair/dark subjects.
-    blob = await removeBackgroundRmbg(input, options);
+    // transformers.js can't be interrupted, so the signal is honoured by
+    // racing rather than by stopping the work.
+    blob = await abortable(removeBackgroundRmbg(input, options), signal);
   } catch (rmbgErr) {
+    // A cancelled run isn't an engine failure — don't spend the user's CPU
+    // starting the fallback on work they just asked us to stop.
+    if (signal?.aborted) throw rmbgErr;
+
     // Fallback: @imgly isnet — works in more environments, lower quality.
     console.warn("RMBG-2.0 failed, falling back to isnet:", rmbgErr);
     try {
       blob = await removeWithImgly(input, options);
-    } catch (imglyErr) {
+    } catch {
       // Both engines failed — surface the original RMBG error.
       throw rmbgErr instanceof Error ? rmbgErr : new Error(String(rmbgErr));
     }
   }
+
+  // Nothing below is worth doing for a run the user already cancelled.
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
   // Professional post-processing: mask refinement + color decontamination
   // + edge feather. This is what separates an ok cutout from a remove.bg-
